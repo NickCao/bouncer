@@ -89,6 +89,17 @@ async fn main() -> anyhow::Result<()> {
     client.add_event_handler(|event: SyncRoomMemberEvent, room: Room| async move {
         if let Room::Joined(room) = room {
             if event.membership() == &MembershipState::Join {
+                let ts = event
+                    .origin_server_ts()
+                    .to_system_time()
+                    .ok_or(anyhow::anyhow!("origin server ts cannot be represented"))?;
+                if std::time::SystemTime::now().duration_since(ts)?.as_secs() > 600 {
+                    log::warn!(
+                        "event {} older than 600 seconds, ignoring",
+                        event.event_id()
+                    );
+                    return Ok(());
+                }
                 log::info!(
                     "user {} joined {} ({:?})",
                     event.sender(),
