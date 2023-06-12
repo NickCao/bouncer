@@ -8,7 +8,9 @@ use matrix_sdk::{
             room::{
                 member::{MembershipState, SyncRoomMemberEvent},
                 message::{Relation, RoomMessageEventContent},
+                power_levels::RoomPowerLevelsEventContent,
             },
+            StateEventType, TimelineEventType,
         },
         UserId,
     },
@@ -45,6 +47,44 @@ async fn main() -> anyhow::Result<()> {
     let init = client.sync_once(SyncSettings::default()).await?;
 
     log::info!("initial sync complete");
+
+    let rooms = client.joined_rooms();
+
+    for room in rooms {
+        log::info!("protecting room {} ({:?})", room.room_id(), room.name());
+        let power_levels = room
+            .get_state_event_static::<RoomPowerLevelsEventContent>()
+            .await?
+            .unwrap()
+            .deserialize()?
+            .power_levels();
+        if power_levels.users_default >= power_levels.events_default {
+            log::warn!(
+                "users in room {} ({:?}) can send message by default",
+                room.room_id(),
+                room.name()
+            );
+        }
+        if power_levels.users_default
+            < *power_levels
+                .events
+                .get(&TimelineEventType::Reaction)
+                .unwrap()
+        {
+            log::warn!(
+                "users in room {} ({:?}) cannot send reaction by default",
+                room.room_id(),
+                room.name()
+            );
+        }
+        if !power_levels.user_can_send_state(room.own_user_id(), StateEventType::RoomPowerLevels) {
+            log::warn!(
+                "bouncer in room {} ({:?}) cannot change user power levels",
+                room.room_id(),
+                room.name()
+            );
+        }
+    }
 
     client.add_event_handler(|event: SyncRoomMemberEvent, room: Room| async move {
         if let Room::Joined(room) = room {
