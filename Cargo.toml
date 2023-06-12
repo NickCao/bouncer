@@ -7,7 +7,6 @@ edition = "2021"
 anyhow = "*"
 tokio = { version = "1", features = [ "full" ] }
 matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk.git", rev = "0b9c082e", default-features = false, features = [ "rustls-tls" ] }
-ruma = { version = "*", features = [ "unstable-msc2677" ] }
 xxhash-rust = { version = "0.8.6", features = [ "xxh3" ] }
 log = "*"
 env_logger = "0.10.0"
