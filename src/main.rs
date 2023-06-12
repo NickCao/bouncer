@@ -89,6 +89,13 @@ async fn main() -> anyhow::Result<()> {
     client.add_event_handler(|event: SyncRoomMemberEvent, room: Room| async move {
         if let Room::Joined(room) = room {
             if event.membership() == &MembershipState::Join {
+                if event.sender().server_name() == room.own_user_id().server_name() {
+                    log::warn!(
+                        "user {} is from the same homeserver as mine, ignoring",
+                        event.sender()
+                    );
+                    return Ok(());
+                };
                 let ts = event
                     .origin_server_ts()
                     .to_system_time()
