@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
             .unwrap()
             .deserialize()?
             .power_levels();
-        if power_levels.users_default
+        if (power_levels.events_default - 1.into())
             < *power_levels
                 .events
                 .get(&TimelineEventType::Reaction)
