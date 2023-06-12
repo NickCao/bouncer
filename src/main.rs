@@ -139,7 +139,7 @@ async fn main() -> anyhow::Result<()> {
                         .unwrap()
                         .deserialize()?
                         .power_levels();
-                    room.update_power_levels(vec![(&event.sender, power_levels.state_default)])
+                    room.update_power_levels(vec![(&event.sender, power_levels.event_default)])
                         .await?;
                 }
             }
