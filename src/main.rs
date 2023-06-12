@@ -122,7 +122,13 @@ async fn main() -> anyhow::Result<()> {
                         == room.own_user_id()
                 {
                     log::info!("user {} passed verification", event.sender);
-                    room.update_power_levels(vec![(&event.sender, 0.into())])
+                    let power_levels = room
+                        .get_state_event_static::<RoomPowerLevelsEventContent>()
+                        .await?
+                        .unwrap()
+                        .deserialize()?
+                        .power_levels();
+                    room.update_power_levels(vec![(&event.sender, power_levels.state_default)])
                         .await?;
                 }
             }
