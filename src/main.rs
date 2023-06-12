@@ -106,6 +106,17 @@ async fn main() -> anyhow::Result<()> {
                     room.room_id(),
                     room.name(),
                 );
+                let power_levels = room
+                    .get_state_event_static::<RoomPowerLevelsEventContent>()
+                    .await?
+                    .unwrap()
+                    .deserialize()?
+                    .power_levels();
+                room.update_power_levels(vec![(
+                    &event.sender(),
+                    power_levels.events_default - 1.into(),
+                )])
+                .await?;
                 let mut content = RoomMessageEventContent::notice_plain(format!(
                     "新加群的用户 {} 请用 Reaction {} 回复本条消息",
                     event.sender(),
