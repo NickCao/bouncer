@@ -58,13 +58,6 @@ async fn main() -> anyhow::Result<()> {
             .unwrap()
             .deserialize()?
             .power_levels();
-        if power_levels.users_default >= power_levels.events_default {
-            log::warn!(
-                "users in room {} ({:?}) can send message by default",
-                room.room_id(),
-                room.name()
-            );
-        }
         if power_levels.users_default
             < *power_levels
                 .events
