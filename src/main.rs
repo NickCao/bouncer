@@ -39,17 +39,23 @@ struct Turnstile {
     success: bool,
 }
 
-async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, (StatusCode, String)> {
+async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
     Ok(Html(
         state
             .env
             .get_template("index.html")
-            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+            .map_err(|err| {
+                log::error!("failed to get template: {}", err);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
             .render(context! {
                 rooms => state.rooms,
                 turnstile_site_key => state.turnstile_site_key,
             })
-            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?,
+            .map_err(|err| {
+                log::error!("failed to render template: {}", err);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?,
     ))
 }
 
@@ -68,15 +74,27 @@ async fn invite(
         )
         .send()
         .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+        .map_err(|err| {
+            log::error!("failed to verify turnstile response: {}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to verify turnstile response".to_string(),
+            )
+        })?
         .json()
         .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        .map_err(|err| {
+            log::error!("failed to decode turnstile verify result: {}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to decode turnstile verify result".to_string(),
+            )
+        })?;
 
     if !response.success {
         return Err((
             StatusCode::FORBIDDEN,
-            "invalid turnstile response".to_string(),
+            "turnstile verification failed".to_string(),
         ));
     }
 
@@ -86,25 +104,47 @@ async fn invite(
             invite.user_id.clone(),
         ))
         .await
-        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
+        .map_err(|err| {
+            log::error!(
+                "failed to get user profile for {}: {}",
+                &invite.user_id,
+                err
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get user profile".to_string(),
+            )
+        })?;
 
     state
         .client
         .send_request(
             ruma::api::client::membership::invite_user::v3::Request::new(
-                invite.room_id,
+                invite.room_id.clone(),
                 ruma::api::client::membership::invite_user::v3::InvitationRecipient::UserId {
                     user_id: invite.user_id.clone(),
                 },
             ),
         )
         .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        .map_err(|err| {
+            log::error!(
+                "failed to invite user {} to room {}: {}",
+                &invite.user_id,
+                &invite.room_id,
+                err
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to get invite user".to_string(),
+            )
+        })?;
 
     Ok(format!(
-        "successfully invited user {} ({})",
+        "successfully invited user {} ({}) to room {}",
         profile.displayname.unwrap_or_default(),
         invite.user_id,
+        invite.room_id,
     ))
 }
 
