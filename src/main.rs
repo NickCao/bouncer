@@ -56,7 +56,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, (Stat
 async fn invite(
     State(state): State<Arc<AppState>>,
     Form(invite): Form<Invite>,
-) -> Result<Html<&'static str>, (StatusCode, String)> {
+) -> Result<String, (StatusCode, String)> {
     let response: Turnstile = reqwest::Client::default()
         .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
         .form::<HashMap<String, String>>(
@@ -80,20 +80,32 @@ async fn invite(
         ));
     }
 
+    let profile = state
+        .client
+        .send_request(ruma::api::client::profile::get_profile::v3::Request::new(
+            invite.user_id.clone(),
+        ))
+        .await
+        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
+
     state
         .client
         .send_request(
             ruma::api::client::membership::invite_user::v3::Request::new(
                 invite.room_id,
                 ruma::api::client::membership::invite_user::v3::InvitationRecipient::UserId {
-                    user_id: invite.user_id,
+                    user_id: invite.user_id.clone(),
                 },
             ),
         )
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
-    Ok(Html("successfully invited"))
+    Ok(format!(
+        "successfully invited user {} ({})",
+        profile.displayname.unwrap_or_default(),
+        invite.user_id,
+    ))
 }
 
 #[derive(clap::Parser)]
