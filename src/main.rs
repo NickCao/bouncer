@@ -1,166 +1,125 @@
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::Html,
+    routing::{get, post},
+    Form, Router,
+};
 use matrix_sdk::{
     config::SyncSettings,
-    room::Room,
+    matrix_auth::{MatrixSession, MatrixSessionTokens},
     ruma::{
-        events::{
-            reaction::SyncReactionEvent,
-            relation::InReplyTo,
-            room::{
-                member::{MembershipState, SyncRoomMemberEvent},
-                message::{Relation, RoomMessageEventContent},
-                power_levels::RoomPowerLevelsEventContent,
-            },
-            StateEventType, TimelineEventType,
-        },
-        UserId,
+        api::client::{filter::FilterDefinition, sync::sync_events::v3::Filter},
+        OwnedDeviceId, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, UInt, UserId,
     },
-    Client,
+    Client, SessionMeta,
 };
+use minijinja::{context, Environment};
+use std::{sync::Arc, vec};
 
-use std::vec;
+struct AppState {
+    client: Client,
+    rooms: Vec<RoomInfo>,
+    env: Environment<'static>,
+}
 
-const REACTIONS: [&str; 7] = ["🎉", "🤣", "😃", "😋", "🥳", "🤔", "😅"];
+#[derive(serde::Serialize)]
+struct RoomInfo {
+    room_id: OwnedRoomId,
+    canonical_alias: Option<OwnedRoomAliasId>,
+    name: Option<String>,
+}
 
-fn hash_user_id(user_id: &UserId) -> &str {
-    let hash = xxhash_rust::xxh3::xxh3_64(user_id.as_bytes());
-    REACTIONS[hash as usize % REACTIONS.len()]
+#[derive(serde::Deserialize)]
+struct Invite {
+    room_id: OwnedRoomId,
+    user_id: OwnedUserId,
+}
+
+async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, (StatusCode, String)> {
+    Ok(Html(
+        state
+            .env
+            .get_template("index.html")
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+            .render(context! {
+                rooms => state.rooms,
+            })
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?,
+    ))
+}
+
+async fn invite(
+    State(state): State<Arc<AppState>>,
+    Form(invite): Form<Invite>,
+) -> Result<Html<&'static str>, (StatusCode, String)> {
+    state
+        .client
+        .get_room(&invite.room_id)
+        .ok_or((StatusCode::NOT_FOUND, "room not found".to_string()))?
+        .invite_user_by_id(&invite.user_id)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(Html("successfully invited"))
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    let mut env = Environment::new();
+    env.add_template("index.html", include_str!("../templates/index.html"))?;
 
-    let username = std::env::var("BOUNCER_USERNAME")?;
-    let password = std::env::var("BOUNCER_PASSWORD")?;
-
-    let username = UserId::parse(username)?;
+    let user_id = UserId::parse(std::env::var("MATRIX_USER_ID")?)?;
+    let device_id: OwnedDeviceId = std::env::var("MATRIX_DEVICE_ID")?.into();
+    let access_token = std::env::var("MATRIX_ACCESS_TOKEN")?;
+    let listen_address = std::env::var("LISTEN_ADDRESS")?;
 
     let client = Client::builder()
-        .server_name(username.server_name())
+        .server_name(user_id.server_name())
         .build()
         .await?;
 
-    log::info!("logging in as user {}", username);
+    client
+        .matrix_auth()
+        .restore_session(MatrixSession {
+            meta: SessionMeta {
+                user_id: user_id.clone(),
+                device_id,
+            },
+            tokens: MatrixSessionTokens {
+                access_token,
+                refresh_token: None,
+            },
+        })
+        .await?;
 
-    client.login_username(username, &password).send().await?;
+    let mut filter = FilterDefinition::ignore_all();
+    filter.room.rooms = None;
+    filter.room.timeline.limit = UInt::new(1);
 
-    let init = client.sync_once(SyncSettings::default()).await?;
+    client
+        .sync_once(SyncSettings::new().filter(Filter::FilterDefinition(filter)))
+        .await?;
 
-    log::info!("initial sync complete");
-
-    let rooms = client.joined_rooms();
-
-    for room in rooms {
-        log::info!("protecting room {} ({:?})", room.room_id(), room.name());
-        let power_levels = room
-            .get_state_event_static::<RoomPowerLevelsEventContent>()
-            .await?
-            .unwrap()
-            .deserialize()?
-            .power_levels();
-        if (power_levels.events_default - 1.into())
-            < *power_levels
-                .events
-                .get(&TimelineEventType::Reaction)
-                .unwrap()
-        {
-            log::warn!(
-                "users in room {} ({:?}) cannot send reaction by default",
-                room.room_id(),
-                room.name()
-            );
-        }
-        if !power_levels.user_can_send_state(room.own_user_id(), StateEventType::RoomPowerLevels) {
-            log::warn!(
-                "bouncer in room {} ({:?}) cannot change user power levels",
-                room.room_id(),
-                room.name()
-            );
+    let mut rooms = vec![];
+    for room in client.rooms() {
+        if room.can_user_invite(&user_id).await? {
+            rooms.push(RoomInfo {
+                room_id: room.room_id().to_owned(),
+                canonical_alias: room.canonical_alias(),
+                name: room.name(),
+            });
         }
     }
 
-    client.add_event_handler(|event: SyncRoomMemberEvent, room: Room| async move {
-        if let Room::Joined(room) = room {
-            if event.membership() == &MembershipState::Join {
-                if event.sender().server_name() == room.own_user_id().server_name() {
-                    log::warn!(
-                        "user {} is from the same homeserver as mine, ignoring",
-                        event.sender()
-                    );
-                    return Ok(());
-                };
-                let ts = event
-                    .origin_server_ts()
-                    .to_system_time()
-                    .ok_or(anyhow::anyhow!("origin server ts cannot be represented"))?;
-                if std::time::SystemTime::now().duration_since(ts)?.as_secs() > 600 {
-                    log::warn!(
-                        "event {} older than 600 seconds, ignoring",
-                        event.event_id()
-                    );
-                    return Ok(());
-                }
-                log::info!(
-                    "user {} joined {} ({:?})",
-                    event.sender(),
-                    room.room_id(),
-                    room.name(),
-                );
-                let power_levels = room
-                    .get_state_event_static::<RoomPowerLevelsEventContent>()
-                    .await?
-                    .unwrap()
-                    .deserialize()?
-                    .power_levels();
-                room.update_power_levels(vec![(
-                    &event.sender(),
-                    power_levels.events_default - 1.into(),
-                )])
-                .await?;
-                let mut content = RoomMessageEventContent::notice_plain(format!(
-                    "新加群的用户 {} 请用 Reaction {} 回复本条消息",
-                    event.sender(),
-                    hash_user_id(event.sender())
-                ));
-                content.relates_to = Some(Relation::Reply {
-                    in_reply_to: InReplyTo::new(event.event_id().into()),
-                });
-                room.send(content, None).await?;
-            }
-        }
-        Ok::<(), anyhow::Error>(())
-    });
+    let state = Arc::new(AppState { client, rooms, env });
 
-    client.add_event_handler(|event: SyncReactionEvent, room: Room| async move {
-        if let Room::Joined(room) = room {
-            if let Some(event) = event.as_original() {
-                if event.content.relates_to.key == hash_user_id(&event.sender)
-                    && room
-                        .event(&event.content.relates_to.event_id)
-                        .await?
-                        .event
-                        .deserialize()?
-                        .sender()
-                        == room.own_user_id()
-                {
-                    log::info!("user {} passed verification", event.sender);
-                    let power_levels = room
-                        .get_state_event_static::<RoomPowerLevelsEventContent>()
-                        .await?
-                        .unwrap()
-                        .deserialize()?
-                        .power_levels();
-                    room.update_power_levels(vec![(&event.sender, power_levels.events_default)])
-                        .await?;
-                }
-            }
-        }
-        Ok::<(), anyhow::Error>(())
-    });
+    let app = Router::new()
+        .route("/", get(index))
+        .route("/invite", post(invite))
+        .with_state(state);
 
-    client
-        .sync(SyncSettings::default().token(init.next_batch))
-        .await?;
+    let listener = tokio::net::TcpListener::bind(listen_address).await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
 }

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Matrix Bouncer</title>
+  </head>
+  <body>
+    <div>
+      <form action="invite" method="post">
+        <table>
+            <thead>
+                <tr>
+                    <th>Id</th>
+                    <th>Alias</th>
+                    <th>Name</th>
+                    <th>Select</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for room in rooms %}
+                <tr>
+                    <td>{{ room.room_id }}</td>
+                    <td>{{ room.canonical_alias }}</td>
+                    <td>{{ room.name }}</td>
+                    <td><input type="radio" name="room_id" value="{{ room.room_id }}"></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div>
+            <label for="user">User ID:</label>
+            <input type="text" id="user" name="user_id" required>
+        </div>
+        <div>
+          <button type="submit">Invite</button>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>

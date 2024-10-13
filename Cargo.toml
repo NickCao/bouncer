@@ -6,12 +6,11 @@ edition = "2021"
 [dependencies]
 anyhow = "*"
 tokio = { version = "1", features = [ "full" ] }
-xxhash-rust = { version = "0.8.6", features = [ "xxh3" ] }
-log = "*"
-env_logger = "0.10.0"
+axum = { version = "0.7.7", features = ["macros"] }
+serde = { version = "1.0.210", features = ["derive"] }
+minijinja = "2.3.1"
 
 [dependencies.matrix-sdk]
-git = "https://github.com/matrix-org/matrix-rust-sdk.git"
-rev = "0b9c082e"
+version = "0.7.1"
 default-features = false
-features = [ "rustls-tls", "anyhow" ]
+features = ["rustls-tls", "experimental-sliding-sync"]
