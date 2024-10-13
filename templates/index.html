@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Matrix Bouncer</title>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   </head>
   <body>
     <div>
@@ -32,6 +33,7 @@
             <label for="user">User ID:</label>
             <input type="text" id="user" name="user_id" required>
         </div>
+        <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div>
         <div>
           <button type="submit">Invite</button>
         </div>

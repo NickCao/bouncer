@@ -15,12 +15,14 @@ use matrix_sdk::{
     Client, SessionMeta,
 };
 use minijinja::{context, Environment};
-use std::{sync::Arc, vec};
+use std::{collections::HashMap, sync::Arc, vec};
 
 struct AppState {
     client: Client,
     rooms: Vec<RoomInfo>,
     env: Environment<'static>,
+    turnstile_site_key: String,
+    turnstile_secret_key: String,
 }
 
 #[derive(serde::Serialize)]
@@ -34,6 +36,13 @@ struct RoomInfo {
 struct Invite {
     room_id: OwnedRoomId,
     user_id: OwnedUserId,
+    #[serde(alias = "cf-turnstile-response")]
+    cf_turnstile_response: String,
+}
+
+#[derive(serde::Deserialize)]
+struct Turnstile {
+    success: bool,
 }
 
 async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, (StatusCode, String)> {
@@ -44,6 +53,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, (Stat
             .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
             .render(context! {
                 rooms => state.rooms,
+                turnstile_site_key => state.turnstile_site_key,
             })
             .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?,
     ))
@@ -53,6 +63,29 @@ async fn invite(
     State(state): State<Arc<AppState>>,
     Form(invite): Form<Invite>,
 ) -> Result<Html<&'static str>, (StatusCode, String)> {
+    let response: Turnstile = reqwest::Client::default()
+        .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
+        .form::<HashMap<String, String>>(
+            &[
+                ("secret".to_string(), state.turnstile_secret_key.clone()),
+                ("response".to_string(), invite.cf_turnstile_response),
+            ]
+            .into(),
+        )
+        .send()
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+        .json()
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    if !response.success {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "invalid turnstile response".to_string(),
+        ));
+    }
+
     state
         .client
         .get_room(&invite.room_id)
@@ -71,6 +104,8 @@ async fn main() -> anyhow::Result<()> {
     let user_id = UserId::parse(std::env::var("MATRIX_USER_ID")?)?;
     let device_id: OwnedDeviceId = std::env::var("MATRIX_DEVICE_ID")?.into();
     let access_token = std::env::var("MATRIX_ACCESS_TOKEN")?;
+    let turnstile_site_key = std::env::var("TURNSTILE_SITE_KEY")?;
+    let turnstile_secret_key = std::env::var("TURNSTILE_SECRET_KEY")?;
     let listen_address = std::env::var("LISTEN_ADDRESS")?;
 
     let client = Client::builder()
@@ -111,7 +146,13 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let state = Arc::new(AppState { client, rooms, env });
+    let state = Arc::new(AppState {
+        client,
+        rooms,
+        env,
+        turnstile_site_key,
+        turnstile_secret_key,
+    });
 
     let app = Router::new()
         .route("/", get(index))
