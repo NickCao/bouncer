@@ -12,7 +12,7 @@ use std::{collections::HashMap, sync::Arc};
 
 struct AppState {
     client: Client<ruma::client::http_client::Reqwest>,
-    rooms: Vec<RoomInfo>,
+    rooms: HashMap<OwnedRoomId, RoomInfo>,
     env: Environment<'static>,
     turnstile_site_key: String,
     turnstile_secret_key: String,
@@ -49,7 +49,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
                 StatusCode::INTERNAL_SERVER_ERROR
             })?
             .render(context! {
-                rooms => state.rooms,
+                rooms => state.rooms.values().collect::<Vec<_>>(),
                 turnstile_site_key => state.turnstile_site_key,
             })
             .map_err(|err| {
@@ -96,6 +96,10 @@ async fn invite(
             StatusCode::FORBIDDEN,
             "turnstile verification failed".to_string(),
         ));
+    }
+
+    if !state.rooms.contains_key(&invite.room_id) {
+        return Err((StatusCode::BAD_REQUEST, "invalid room_id".to_string()));
     }
 
     let profile = state
@@ -192,7 +196,7 @@ async fn main() -> anyhow::Result<()> {
         .await?
         .joined_rooms;
 
-    let mut rooms = vec![];
+    let mut rooms = HashMap::default();
     for room in joined_rooms {
         let preview = client
             .send_request(ruma::api::client::room::get_summary::msc3266::Request::new(
@@ -200,12 +204,15 @@ async fn main() -> anyhow::Result<()> {
                 vec![],
             ))
             .await?;
-        rooms.push(RoomInfo {
-            room_id: preview.room_id,
-            canonical_alias: preview.canonical_alias,
-            name: preview.name,
-            join_rule: preview.join_rule,
-        });
+        rooms.insert(
+            preview.room_id.clone(),
+            RoomInfo {
+                room_id: preview.room_id,
+                canonical_alias: preview.canonical_alias,
+                name: preview.name,
+                join_rule: preview.join_rule,
+            },
+        );
     }
 
     let state = Arc::new(AppState {
