@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Matrix Bouncer</title>
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <style>
+      table, th, td {
+        border: 1px solid;
+      }
+      table {
+        border-collapse: collapse;
+      }
+    </style>
   </head>
   <body>
     <div>
@@ -15,6 +23,7 @@
                     <th>Id</th>
                     <th>Alias</th>
                     <th>Name</th>
+                    <th>Join Rule</th>
                     <th>Select</th>
                 </tr>
             </thead>
@@ -24,6 +33,7 @@
                     <td>{{ room.room_id }}</td>
                     <td>{{ room.canonical_alias }}</td>
                     <td>{{ room.name }}</td>
+                    <td>{{ room.join_rule }}</td>
                     <td><input type="radio" name="room_id" value="{{ room.room_id }}"></td>
                 </tr>
                 {% endfor %}

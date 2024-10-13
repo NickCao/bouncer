@@ -7,7 +7,7 @@ use axum::{
 };
 use clap::Parser;
 use minijinja::{context, Environment};
-use ruma::{Client, OwnedRoomAliasId, OwnedRoomId, OwnedUserId};
+use ruma::{space::SpaceRoomJoinRule, Client, OwnedRoomAliasId, OwnedRoomId, OwnedUserId};
 use std::{collections::HashMap, sync::Arc};
 
 struct AppState {
@@ -23,6 +23,7 @@ struct RoomInfo {
     room_id: OwnedRoomId,
     canonical_alias: Option<OwnedRoomAliasId>,
     name: Option<String>,
+    join_rule: SpaceRoomJoinRule,
 }
 
 #[derive(serde::Deserialize)]
@@ -149,6 +150,7 @@ async fn main() -> anyhow::Result<()> {
             room_id: preview.room_id,
             canonical_alias: preview.canonical_alias,
             name: preview.name,
+            join_rule: preview.join_rule,
         });
     }
 
