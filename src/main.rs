@@ -5,12 +5,13 @@ use axum::{
     routing::{get, post},
     Form, Router,
 };
+use clap::Parser;
 use matrix_sdk::{
     config::SyncSettings,
     matrix_auth::{MatrixSession, MatrixSessionTokens},
     ruma::{
         api::client::{filter::FilterDefinition, sync::sync_events::v3::Filter},
-        OwnedDeviceId, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, UInt, UserId,
+        OwnedDeviceId, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, UInt,
     },
     Client, SessionMeta,
 };
@@ -96,17 +97,38 @@ async fn invite(
     Ok(Html("successfully invited"))
 }
 
+#[derive(clap::Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(long, env = "MATRIX_USER_ID")]
+    user_id: OwnedUserId,
+    #[arg(long, env = "MATRIX_DEVICE_ID")]
+    device_id: OwnedDeviceId,
+    #[arg(long, env = "MATRIX_ACCESS_TOKEN")]
+    access_token: String,
+    #[arg(long, env, default_value = "1x00000000000000000000AA")]
+    turnstile_site_key: String,
+    #[arg(long, env, default_value = "1x0000000000000000000000000000000AA")]
+    turnstile_secret_key: String,
+    #[arg(long)]
+    listen_address: String,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+
     let mut env = Environment::new();
     env.add_template("index.html", include_str!("../templates/index.html"))?;
 
-    let user_id = UserId::parse(std::env::var("MATRIX_USER_ID")?)?;
-    let device_id: OwnedDeviceId = std::env::var("MATRIX_DEVICE_ID")?.into();
-    let access_token = std::env::var("MATRIX_ACCESS_TOKEN")?;
-    let turnstile_site_key = std::env::var("TURNSTILE_SITE_KEY")?;
-    let turnstile_secret_key = std::env::var("TURNSTILE_SECRET_KEY")?;
-    let listen_address = std::env::var("LISTEN_ADDRESS")?;
+    let Args {
+        user_id,
+        device_id,
+        access_token,
+        turnstile_site_key,
+        turnstile_secret_key,
+        listen_address,
+    } = args;
 
     let client = Client::builder()
         .server_name(user_id.server_name())

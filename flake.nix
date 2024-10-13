@@ -24,6 +24,7 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
           };
+          meta.mainProgram = "bouncer";
         };
       }
     );
