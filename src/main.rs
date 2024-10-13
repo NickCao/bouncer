@@ -6,20 +6,12 @@ use axum::{
     Form, Router,
 };
 use clap::Parser;
-use matrix_sdk::{
-    config::SyncSettings,
-    matrix_auth::{MatrixSession, MatrixSessionTokens},
-    ruma::{
-        api::client::{filter::FilterDefinition, sync::sync_events::v3::Filter},
-        OwnedDeviceId, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, UInt,
-    },
-    Client, SessionMeta,
-};
 use minijinja::{context, Environment};
-use std::{collections::HashMap, sync::Arc, vec};
+use ruma::{Client, OwnedRoomAliasId, OwnedRoomId, OwnedUserId};
+use std::{collections::HashMap, sync::Arc};
 
 struct AppState {
-    client: Client,
+    client: Client<ruma::client::http_client::Reqwest>,
     rooms: Vec<RoomInfo>,
     env: Environment<'static>,
     turnstile_site_key: String,
@@ -89,23 +81,27 @@ async fn invite(
 
     state
         .client
-        .get_room(&invite.room_id)
-        .ok_or((StatusCode::NOT_FOUND, "room not found".to_string()))?
-        .invite_user_by_id(&invite.user_id)
+        .send_request(
+            ruma::api::client::membership::invite_user::v3::Request::new(
+                invite.room_id,
+                ruma::api::client::membership::invite_user::v3::InvitationRecipient::UserId {
+                    user_id: invite.user_id,
+                },
+            ),
+        )
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
     Ok(Html("successfully invited"))
 }
 
 #[derive(clap::Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, env = "MATRIX_USER_ID")]
-    user_id: OwnedUserId,
-    #[arg(long, env = "MATRIX_DEVICE_ID")]
-    device_id: OwnedDeviceId,
     #[arg(long, env = "MATRIX_ACCESS_TOKEN")]
     access_token: String,
+    #[arg(long, env = "MATRIX_HOMESERVER_URL")]
+    homeserver_url: String,
     #[arg(long, env, default_value = "1x00000000000000000000AA")]
     turnstile_site_key: String,
     #[arg(long, env, default_value = "1x0000000000000000000000000000000AA")]
@@ -122,50 +118,38 @@ async fn main() -> anyhow::Result<()> {
     env.add_template("index.html", include_str!("../templates/index.html"))?;
 
     let Args {
-        user_id,
-        device_id,
         access_token,
+        homeserver_url,
         turnstile_site_key,
         turnstile_secret_key,
         listen_address,
     } = args;
 
     let client = Client::builder()
-        .server_name(user_id.server_name())
-        .build()
-        .await?;
+        .homeserver_url(homeserver_url)
+        .access_token(Some(access_token))
+        .build::<ruma::client::http_client::Reqwest>()
+        .await
+        .unwrap();
 
-    client
-        .matrix_auth()
-        .restore_session(MatrixSession {
-            meta: SessionMeta {
-                user_id: user_id.clone(),
-                device_id,
-            },
-            tokens: MatrixSessionTokens {
-                access_token,
-                refresh_token: None,
-            },
-        })
-        .await?;
-
-    let mut filter = FilterDefinition::ignore_all();
-    filter.room.rooms = None;
-    filter.room.timeline.limit = UInt::new(1);
-
-    client
-        .sync_once(SyncSettings::new().filter(Filter::FilterDefinition(filter)))
-        .await?;
+    let joined_rooms = client
+        .send_request(ruma::api::client::membership::joined_rooms::v3::Request::new())
+        .await?
+        .joined_rooms;
 
     let mut rooms = vec![];
-    for room in client.rooms() {
-        if room.can_user_invite(&user_id).await? {
-            rooms.push(RoomInfo {
-                room_id: room.room_id().to_owned(),
-                canonical_alias: room.canonical_alias(),
-                name: room.name(),
-            });
-        }
+    for room in joined_rooms {
+        let preview = client
+            .send_request(ruma::api::client::room::get_summary::msc3266::Request::new(
+                room.into(),
+                vec![],
+            ))
+            .await?;
+        rooms.push(RoomInfo {
+            room_id: preview.room_id,
+            canonical_alias: preview.canonical_alias,
+            name: preview.name,
+        });
     }
 
     let state = Arc::new(AppState {
