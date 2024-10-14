@@ -13,7 +13,14 @@ use oauth2::{
     basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
     ClientSecret, CsrfToken, RedirectUrl, TokenResponse, TokenUrl,
 };
-use ruma::{space::SpaceRoomJoinRule, Client, OwnedRoomAliasId, OwnedRoomId, OwnedUserId};
+use ruma::{
+    events::{
+        room::power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
+        StateEventType,
+    },
+    space::SpaceRoomJoinRule,
+    Client, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
+};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -309,6 +316,12 @@ async fn main() -> anyhow::Result<()> {
         .await
         .unwrap();
 
+    let user_id = client
+        .send_request(ruma::api::client::account::whoami::v3::Request::new())
+        .await?
+        .user_id;
+    log::warn!("Running under user {}", &user_id);
+
     let joined_rooms = client
         .send_request(ruma::api::client::membership::joined_rooms::v3::Request::new())
         .await?
@@ -316,9 +329,24 @@ async fn main() -> anyhow::Result<()> {
 
     let mut rooms = HashMap::default();
     for room in joined_rooms {
+        let power_levels: RoomPowerLevels = client
+            .send_request(
+                ruma::api::client::state::get_state_events_for_key::v3::Request::new(
+                    room.clone(),
+                    StateEventType::RoomPowerLevels,
+                    "".to_string(),
+                ),
+            )
+            .await?
+            .content
+            .deserialize_as::<RoomPowerLevelsEventContent>()?
+            .into();
+        if !power_levels.user_can_invite(&user_id) {
+            continue;
+        };
         let preview = client
             .send_request(ruma::api::client::room::get_summary::msc3266::Request::new(
-                room.into(),
+                room.clone().into(),
                 vec![],
             ))
             .await?;
