@@ -242,7 +242,7 @@ async fn invite(
         .await
         .insert(csrf_token.secret().to_string(), invite);
 
-    Ok(Redirect::temporary(auth_url.as_str()))
+    Ok(Redirect::to(auth_url.as_str()))
 }
 
 #[derive(clap::Parser)]
