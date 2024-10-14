@@ -6,6 +6,7 @@ use axum::{
     Form, Router,
 };
 use chrono::{Duration, Local};
+use chrono_humanize::{Accuracy, HumanTime, Tense};
 use clap::Parser;
 use minijinja::{context, Environment};
 use oauth2::{
@@ -140,7 +141,7 @@ async fn callback(
         "matrix user {} is GitHub user {}, age {:?}",
         &invite.user_id,
         &user.login,
-        &age.to_std().unwrap_or_default(),
+        HumanTime::from(age).to_text_en(Accuracy::Rough, Tense::Present),
     );
 
     if invite.user_id.server_name() == "matrix.org" && age.le(&Duration::days(1)) {
@@ -148,7 +149,7 @@ async fn callback(
             "matrix user {} is from matrix.org and GitHub user {} age {:?} less than 1 day",
             &invite.user_id,
             &user.login,
-            &age.to_std().unwrap_or_default()
+            HumanTime::from(age).to_text_en(Accuracy::Rough, Tense::Present),
         );
         return Err((StatusCode::FORBIDDEN, "".to_string()));
     }

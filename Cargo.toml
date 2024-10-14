@@ -15,6 +15,7 @@ env_logger = "0.11.5"
 log = "0.4.22"
 oauth2 = "4.4.2"
 chrono = "0.4.38"
+chrono-humanize = "0.2.3"
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma.git"
