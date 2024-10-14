@@ -14,6 +14,7 @@ use oauth2::{
     ClientSecret, CsrfToken, RedirectUrl, TokenResponse, TokenUrl,
 };
 use ruma::{
+    api::client,
     events::{
         room::power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
         StateEventType,
@@ -163,7 +164,7 @@ async fn callback(
 
     let profile = state
         .client
-        .send_request(ruma::api::client::profile::get_profile::v3::Request::new(
+        .send_request(client::profile::get_profile::v3::Request::new(
             invite.user_id.clone(),
         ))
         .await
@@ -181,14 +182,12 @@ async fn callback(
 
     state
         .client
-        .send_request(
-            ruma::api::client::membership::invite_user::v3::Request::new(
-                invite.room_id.clone(),
-                ruma::api::client::membership::invite_user::v3::InvitationRecipient::UserId {
-                    user_id: invite.user_id.clone(),
-                },
-            ),
-        )
+        .send_request(client::membership::invite_user::v3::Request::new(
+            invite.room_id.clone(),
+            client::membership::invite_user::v3::InvitationRecipient::UserId {
+                user_id: invite.user_id.clone(),
+            },
+        ))
         .await
         .map_err(|err| {
             log::error!(
@@ -317,36 +316,38 @@ async fn main() -> anyhow::Result<()> {
         .unwrap();
 
     let user_id = client
-        .send_request(ruma::api::client::account::whoami::v3::Request::new())
+        .send_request(client::account::whoami::v3::Request::new())
         .await?
         .user_id;
     log::warn!("Running under user {}", &user_id);
 
     let joined_rooms = client
-        .send_request(ruma::api::client::membership::joined_rooms::v3::Request::new())
+        .send_request(client::membership::joined_rooms::v3::Request::new())
         .await?
         .joined_rooms;
 
     let mut rooms = HashMap::default();
-    for room in joined_rooms {
+    for room_id in joined_rooms {
         let power_levels: RoomPowerLevels = client
-            .send_request(
-                ruma::api::client::state::get_state_events_for_key::v3::Request::new(
-                    room.clone(),
-                    StateEventType::RoomPowerLevels,
-                    "".to_string(),
-                ),
-            )
+            .send_request(client::state::get_state_events_for_key::v3::Request::new(
+                room_id.clone(),
+                StateEventType::RoomPowerLevels,
+                "".to_string(),
+            ))
             .await?
             .content
             .deserialize_as::<RoomPowerLevelsEventContent>()?
             .into();
         if !power_levels.user_can_invite(&user_id) {
+            log::warn!(
+                "Do not have invite permission for room {}, ignoring",
+                &room_id
+            );
             continue;
         };
         let preview = client
-            .send_request(ruma::api::client::room::get_summary::msc3266::Request::new(
-                room.clone().into(),
+            .send_request(client::room::get_summary::msc3266::Request::new(
+                room_id.clone().into(),
                 vec![],
             ))
             .await?;
