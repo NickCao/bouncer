@@ -149,7 +149,8 @@ async fn callback(
             &invite.user_id,
             &user.login,
             &age.to_std().unwrap_or_default()
-        )
+        );
+        return Err((StatusCode::FORBIDDEN, "".to_string()));
     }
 
     let profile = state
