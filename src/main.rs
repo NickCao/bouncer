@@ -137,18 +137,18 @@ async fn callback(
     let age = Local::now().to_utc().signed_duration_since(user.created_at);
 
     log::warn!(
-        "matrix user {} is GitHub user {}, age {}",
+        "matrix user {} is GitHub user {}, age {:?}",
         &invite.user_id,
         &user.login,
-        &age,
+        &age.to_std().unwrap_or_default(),
     );
 
     if invite.user_id.server_name() == "matrix.org" && age.le(&Duration::days(1)) {
         log::error!(
-            "matrix user {} is from matrix.org and GitHub user {} age {} less than 1 day",
+            "matrix user {} is from matrix.org and GitHub user {} age {:?} less than 1 day",
             &invite.user_id,
             &user.login,
-            &age
+            &age.to_std().unwrap_or_default()
         )
     }
 
