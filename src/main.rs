@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
     Form, Router,
 };
+use chrono::{Duration, Local};
 use clap::Parser;
 use minijinja::{context, Environment};
 use oauth2::{
@@ -75,6 +76,7 @@ struct Callback {
 #[derive(Debug, serde::Deserialize)]
 struct GitHubUser {
     login: String,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 async fn callback(
@@ -132,11 +134,23 @@ async fn callback(
             )
         })?;
 
+    let age = Local::now().to_utc().signed_duration_since(user.created_at);
+
     log::warn!(
-        "matrix user {} is GitHub user {}",
+        "matrix user {} is GitHub user {}, age {}",
         &invite.user_id,
-        user.login
+        &user.login,
+        &age,
     );
+
+    if invite.user_id.server_name() == "matrix.org" && age.le(&Duration::days(1)) {
+        log::error!(
+            "matrix user {} is from matrix.org and GitHub user {} age {} less than 1 day",
+            &invite.user_id,
+            &user.login,
+            &age
+        )
+    }
 
     let profile = state
         .client
@@ -176,7 +190,7 @@ async fn callback(
             );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to get invite user".to_string(),
+                "failed to invite user".to_string(),
             )
         })?;
 
