@@ -1,21 +1,28 @@
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
-    response::Html,
+    response::{Html, Redirect},
     routing::{get, post},
     Form, Router,
 };
 use clap::Parser;
 use minijinja::{context, Environment};
+use oauth2::{
+    basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
+    ClientSecret, CsrfToken, RedirectUrl, TokenResponse, TokenUrl,
+};
 use ruma::{space::SpaceRoomJoinRule, Client, OwnedRoomAliasId, OwnedRoomId, OwnedUserId};
 use std::{collections::HashMap, sync::Arc};
+use tokio::sync::Mutex;
 
 struct AppState {
     client: Client<ruma::client::http_client::Reqwest>,
+    oauth2_client: BasicClient,
     rooms: HashMap<OwnedRoomId, RoomInfo>,
     env: Environment<'static>,
     turnstile_site_key: String,
     turnstile_secret_key: String,
+    csrf: Mutex<HashMap<String, Invite>>,
 }
 
 #[derive(serde::Serialize)]
@@ -59,48 +66,77 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     ))
 }
 
-async fn invite(
+#[derive(Debug, serde::Deserialize)]
+struct Callback {
+    code: String,
+    state: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubUser {
+    login: String,
+}
+
+async fn callback(
     State(state): State<Arc<AppState>>,
-    Form(invite): Form<Invite>,
+    Query(query): Query<Callback>,
 ) -> Result<String, (StatusCode, String)> {
-    let response: Turnstile = reqwest::Client::default()
-        .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
-        .form::<HashMap<String, String>>(
-            &[
-                ("secret".to_string(), state.turnstile_secret_key.clone()),
-                ("response".to_string(), invite.cf_turnstile_response),
-            ]
-            .into(),
-        )
+    let invite = state
+        .csrf
+        .lock()
+        .await
+        .remove(&query.state)
+        .ok_or((StatusCode::BAD_REQUEST, "invalid csrf token".to_string()))?;
+
+    let token = state
+        .oauth2_client
+        .exchange_code(AuthorizationCode::new(query.code))
+        .request_async(async_http_client)
+        .await
+        .map_err(|err| {
+            log::error!("failed to exchange for token: {}", err);
+            (
+                StatusCode::BAD_REQUEST,
+                "failed to exchange for token".to_string(),
+            )
+        })?;
+
+    let user: GitHubUser = reqwest::Client::builder()
+        .user_agent("Matrix Bouncer")
+        .build()
+        .map_err(|err| {
+            log::error!("failed to build client: {}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to build client".to_string(),
+            )
+        })?
+        .get("https://api.github.com/user")
+        .bearer_auth(token.access_token().secret())
         .send()
         .await
         .map_err(|err| {
-            log::error!("failed to verify turnstile response: {}", err);
+            log::error!("failed to get user info: {}", err);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to verify turnstile response".to_string(),
+                "failed to get user info".to_string(),
             )
         })?
         .json()
         .await
         .map_err(|err| {
-            log::error!("failed to decode turnstile verify result: {}", err);
+            log::error!("failed to decode user info: {}", err);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to decode turnstile verify result".to_string(),
+                "failed to decode user info".to_string(),
             )
         })?;
 
-    if !response.success {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "turnstile verification failed".to_string(),
-        ));
-    }
-
-    if !state.rooms.contains_key(&invite.room_id) {
-        return Err((StatusCode::BAD_REQUEST, "invalid room_id".to_string()));
-    }
+    log::info!(
+        "matrix user {} is GitHub user {}",
+        &invite.user_id,
+        user.login
+    );
 
     let profile = state
         .client
@@ -152,6 +188,63 @@ async fn invite(
     ))
 }
 
+async fn invite(
+    State(state): State<Arc<AppState>>,
+    Form(invite): Form<Invite>,
+) -> Result<Redirect, (StatusCode, String)> {
+    let response: Turnstile = reqwest::Client::new()
+        .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
+        .form::<HashMap<String, String>>(
+            &[
+                ("secret".to_string(), state.turnstile_secret_key.clone()),
+                ("response".to_string(), invite.cf_turnstile_response.clone()),
+            ]
+            .into(),
+        )
+        .send()
+        .await
+        .map_err(|err| {
+            log::error!("failed to verify turnstile response: {}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to verify turnstile response".to_string(),
+            )
+        })?
+        .json()
+        .await
+        .map_err(|err| {
+            log::error!("failed to decode turnstile verify result: {}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to decode turnstile verify result".to_string(),
+            )
+        })?;
+
+    if !response.success {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "turnstile verification failed".to_string(),
+        ));
+    }
+
+    if !state.rooms.contains_key(&invite.room_id) {
+        return Err((StatusCode::BAD_REQUEST, "invalid room_id".to_string()));
+    }
+
+    let (auth_url, csrf_token) = state
+        .oauth2_client
+        .authorize_url(CsrfToken::new_random)
+        .url();
+
+    state
+        .csrf
+        .lock()
+        .await
+        .insert(csrf_token.secret().to_string(), invite);
+
+    Ok(Redirect::temporary(auth_url.as_str()))
+}
+
 #[derive(clap::Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -159,6 +252,12 @@ struct Args {
     access_token: String,
     #[arg(long, env = "MATRIX_HOMESERVER_URL")]
     homeserver_url: String,
+    #[arg(long, env = "GITHUB_CLIENT_ID")]
+    github_client_id: String,
+    #[arg(long, env = "GITHUB_CLIENT_SECRET")]
+    github_client_secret: String,
+    #[arg(long, env = "GITHUB_REDIRECT_URL")]
+    github_redirect_url: String,
     #[arg(long, env, default_value = "1x00000000000000000000AA")]
     turnstile_site_key: String,
     #[arg(long, env, default_value = "1x0000000000000000000000000000000AA")]
@@ -179,6 +278,9 @@ async fn main() -> anyhow::Result<()> {
     let Args {
         access_token,
         homeserver_url,
+        github_client_id,
+        github_client_secret,
+        github_redirect_url,
         turnstile_site_key,
         turnstile_secret_key,
         listen_address,
@@ -215,17 +317,30 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    let oauth2_client = BasicClient::new(
+        ClientId::new(github_client_id),
+        Some(ClientSecret::new(github_client_secret)),
+        AuthUrl::new("https://github.com/login/oauth/authorize".to_string())?,
+        Some(TokenUrl::new(
+            "https://github.com/login/oauth/access_token".to_string(),
+        )?),
+    )
+    .set_redirect_uri(RedirectUrl::new(github_redirect_url)?);
+
     let state = Arc::new(AppState {
         client,
+        oauth2_client,
         rooms,
         env,
         turnstile_site_key,
         turnstile_secret_key,
+        csrf: Mutex::new(HashMap::new()),
     });
 
     let app = Router::new()
         .route("/", get(index))
         .route("/invite", post(invite))
+        .route("/callback", get(callback))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(listen_address).await?;
