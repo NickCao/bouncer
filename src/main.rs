@@ -132,7 +132,7 @@ async fn callback(
             )
         })?;
 
-    log::info!(
+    log::warn!(
         "matrix user {} is GitHub user {}",
         &invite.user_id,
         user.login
