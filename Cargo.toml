@@ -8,7 +8,6 @@ anyhow = "*"
 tokio = { version = "1", features = [ "full" ] }
 axum = { version = "0.7.7", features = ["macros"] }
 serde = { version = "1.0.210", features = ["derive"] }
-minijinja = "2.3.1"
 reqwest = { version = "0.12.8", features = ["json", "rustls-tls-webpki-roots"], default-features = false }
 clap = { version = "4.5.20", features = ["derive", "env"] }
 env_logger = "0.11.5"
@@ -16,6 +15,7 @@ log = "0.4.22"
 oauth2 = "4.4.2"
 chrono = "0.4.38"
 chrono-humanize = "0.2.3"
+maud = { version = "0.26.0", features = ["axum"] }
 
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma.git"

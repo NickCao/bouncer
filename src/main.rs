@@ -1,14 +1,14 @@
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::{Html, Redirect},
+    response::Redirect,
     routing::{get, post},
     Form, Router,
 };
+use bouncer::{AppState, Invite, RoomInfo};
 use chrono::{Duration, Local};
 use chrono_humanize::{Accuracy, HumanTime, Tense};
 use clap::Parser;
-use minijinja::{context, Environment};
 use oauth2::{
     basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
     ClientSecret, CsrfToken, RedirectUrl, TokenResponse, TokenUrl,
@@ -19,61 +19,14 @@ use ruma::{
         room::power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
         StateEventType,
     },
-    space::SpaceRoomJoinRule,
-    Client, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
+    Client,
 };
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
-struct AppState {
-    client: Client<ruma::client::http_client::Reqwest>,
-    oauth2_client: BasicClient,
-    rooms: HashMap<OwnedRoomId, RoomInfo>,
-    env: Environment<'static>,
-    turnstile_site_key: String,
-    turnstile_secret_key: String,
-    csrf: Mutex<HashMap<String, Invite>>,
-}
-
-#[derive(serde::Serialize)]
-struct RoomInfo {
-    room_id: OwnedRoomId,
-    canonical_alias: Option<OwnedRoomAliasId>,
-    name: Option<String>,
-    join_rule: SpaceRoomJoinRule,
-}
-
-#[derive(serde::Deserialize)]
-struct Invite {
-    room_id: OwnedRoomId,
-    user_id: OwnedUserId,
-    #[serde(alias = "cf-turnstile-response")]
-    cf_turnstile_response: String,
-}
-
 #[derive(serde::Deserialize)]
 struct Turnstile {
     success: bool,
-}
-
-async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
-    Ok(Html(
-        state
-            .env
-            .get_template("index.html")
-            .map_err(|err| {
-                log::error!("failed to get template: {}", err);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
-            .render(context! {
-                rooms => state.rooms.values().collect::<Vec<_>>(),
-                turnstile_site_key => state.turnstile_site_key,
-            })
-            .map_err(|err| {
-                log::error!("failed to render template: {}", err);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?,
-    ))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -294,9 +247,6 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let mut env = Environment::new();
-    env.add_template("index.html", include_str!("../templates/index.html"))?;
-
     let Args {
         access_token,
         homeserver_url,
@@ -376,14 +326,13 @@ async fn main() -> anyhow::Result<()> {
         client,
         oauth2_client,
         rooms,
-        env,
         turnstile_site_key,
         turnstile_secret_key,
         csrf: Mutex::new(HashMap::new()),
     });
 
     let app = Router::new()
-        .route("/", get(index))
+        .route("/", get(bouncer::index))
         .route("/invite", post(invite))
         .route("/callback", get(callback))
         .with_state(state);
