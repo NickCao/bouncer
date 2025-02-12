@@ -18,13 +18,11 @@ chrono-humanize = "0.2.3"
 maud = { version = "0.26.0", features = ["axum"] }
 
 [dependencies.ruma]
-git = "https://github.com/ruma/ruma.git"
-branch = "main"
+version = "0.12.1"
 default-features = false
 features = ["api", "client", "client-api", "client-ext-client-api", "unstable-msc3266"]
 
 [dependencies.ruma-client]
-git = "https://github.com/ruma/ruma.git"
-branch = "main"
+version = "0.15.0"
 default-features = false
 features = ["reqwest"]

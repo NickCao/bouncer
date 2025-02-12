@@ -23,9 +23,6 @@
           src = self;
           cargoLock = {
             lockFile = ./Cargo.lock;
-            outputHashes = {
-              "ruma-0.10.1" = "sha256-UOC+i2vVqHEdGkLbc/f4tbiuodIWiw1k9UnVHcT9VKU=";
-            };
           };
           meta.mainProgram = "bouncer";
         };

@@ -24,11 +24,6 @@ use ruma::{
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
-#[derive(serde::Deserialize)]
-struct Turnstile {
-    success: bool,
-}
-
 #[derive(Debug, serde::Deserialize)]
 struct Callback {
     code: String,
@@ -167,41 +162,6 @@ async fn invite(
     State(state): State<Arc<AppState>>,
     Form(invite): Form<Invite>,
 ) -> Result<Redirect, (StatusCode, String)> {
-    let response: Turnstile = reqwest::Client::new()
-        .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
-        .form::<HashMap<String, String>>(
-            &[
-                ("secret".to_string(), state.turnstile_secret_key.clone()),
-                ("response".to_string(), invite.cf_turnstile_response.clone()),
-            ]
-            .into(),
-        )
-        .send()
-        .await
-        .map_err(|err| {
-            log::error!("failed to verify turnstile response: {}", err);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to verify turnstile response".to_string(),
-            )
-        })?
-        .json()
-        .await
-        .map_err(|err| {
-            log::error!("failed to decode turnstile verify result: {}", err);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to decode turnstile verify result".to_string(),
-            )
-        })?;
-
-    if !response.success {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "turnstile verification failed".to_string(),
-        ));
-    }
-
     if !state.rooms.contains_key(&invite.room_id) {
         return Err((StatusCode::BAD_REQUEST, "invalid room_id".to_string()));
     }
@@ -233,10 +193,6 @@ struct Args {
     github_client_secret: String,
     #[arg(long, env = "GITHUB_REDIRECT_URL")]
     github_redirect_url: String,
-    #[arg(long, env, default_value = "1x00000000000000000000AA")]
-    turnstile_site_key: String,
-    #[arg(long, env, default_value = "1x0000000000000000000000000000000AA")]
-    turnstile_secret_key: String,
     #[arg(long)]
     listen_address: String,
 }
@@ -253,8 +209,6 @@ async fn main() -> anyhow::Result<()> {
         github_client_id,
         github_client_secret,
         github_redirect_url,
-        turnstile_site_key,
-        turnstile_secret_key,
         listen_address,
     } = args;
 
@@ -326,8 +280,6 @@ async fn main() -> anyhow::Result<()> {
         client,
         oauth2_client,
         rooms,
-        turnstile_site_key,
-        turnstile_secret_key,
         csrf: Mutex::new(HashMap::new()),
     });
 

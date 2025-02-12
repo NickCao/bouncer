@@ -10,8 +10,6 @@ pub struct AppState {
     pub client: Client<ruma::client::http_client::Reqwest>,
     pub oauth2_client: BasicClient,
     pub rooms: HashMap<OwnedRoomId, RoomInfo>,
-    pub turnstile_site_key: String,
-    pub turnstile_secret_key: String,
     pub csrf: Mutex<HashMap<String, Invite>>,
 }
 
@@ -27,8 +25,6 @@ pub struct RoomInfo {
 pub struct Invite {
     pub room_id: OwnedRoomId,
     pub user_id: OwnedUserId,
-    #[serde(alias = "cf-turnstile-response")]
-    pub cf_turnstile_response: String,
 }
 
 pub async fn index(State(state): State<Arc<AppState>>) -> Markup {
@@ -40,7 +36,6 @@ pub async fn index(State(state): State<Arc<AppState>>) -> Markup {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { "Matrix Bouncer" }
-                script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer {}
                 style {
                     r#"
                       table, th, td {
@@ -97,7 +92,6 @@ pub async fn index(State(state): State<Arc<AppState>>) -> Markup {
                               button type="submit" style="width: 100%;" { "Login with GitHub to Invite" }
                             }
                           }
-                          div class="cf-turnstile" data-sitekey=(&state.turnstile_site_key) style="padding: 5px;" {}
                         }
                     }
                 }
