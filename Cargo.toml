@@ -25,4 +25,4 @@ features = ["client-api-c"]
 [dependencies.ruma-client]
 version = "0.20.0"
 default-features = false
-features = ["client-api", "reqwest"]
+features = ["client-api", "reqwest-rustls"]
