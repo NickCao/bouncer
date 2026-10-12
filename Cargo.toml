@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "*"
 tokio = { version = "1", features = [ "full" ] }
-axum = { version = "0.7.9", features = ["macros"] }
+axum = { version = "0.8.9", features = ["macros"] }
 serde = { version = "1.0.229", features = ["derive"] }
 reqwest = { version = "0.12.28", features = ["json", "rustls-tls-webpki-roots"], default-features = false }
 clap = { version = "4.6.7", features = ["derive", "env"] }
@@ -15,7 +15,7 @@ log = "0.4.34"
 oauth2 = "5.0.0"
 chrono = "0.4.45"
 chrono-humanize = "0.2.3"
-maud = { version = "0.26.0", features = ["axum"] }
+maud = { version = "0.27.0", features = ["axum"] }
 
 [dependencies.ruma]
 version = "0.12.6"
