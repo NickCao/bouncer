@@ -250,18 +250,18 @@ async fn main() -> anyhow::Result<()> {
             continue;
         };
         let preview = client
-            .send_request(client::room::get_summary::msc3266::Request::new(
+            .send_request(client::room::get_summary::v1::Request::new(
                 room_id.clone().into(),
                 vec![],
             ))
             .await?;
         rooms.insert(
-            preview.room_id.clone(),
+            preview.summary.room_id.clone(),
             RoomInfo {
-                room_id: preview.room_id,
-                canonical_alias: preview.canonical_alias,
-                name: preview.name,
-                join_rule: preview.join_rule,
+                room_id: preview.summary.room_id,
+                canonical_alias: preview.summary.canonical_alias,
+                name: preview.summary.name,
+                join_rule: preview.summary.join_rule,
             },
         );
     }

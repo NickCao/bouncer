@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use axum::extract::State;
 use maud::{html, Markup, DOCTYPE};
 use oauth2::basic::BasicClient;
-use ruma::{space::SpaceRoomJoinRule, Client, OwnedRoomAliasId, OwnedRoomId, OwnedUserId};
+use ruma::{room::JoinRuleSummary, Client, OwnedRoomAliasId, OwnedRoomId, OwnedUserId};
 use tokio::sync::Mutex;
 
 pub struct AppState {
@@ -18,7 +18,7 @@ pub struct RoomInfo {
     pub room_id: OwnedRoomId,
     pub canonical_alias: Option<OwnedRoomAliasId>,
     pub name: Option<String>,
-    pub join_rule: SpaceRoomJoinRule,
+    pub join_rule: JoinRuleSummary,
 }
 
 #[derive(serde::Deserialize)]
@@ -76,7 +76,7 @@ pub async fn index(State(state): State<Arc<AppState>>) -> Markup {
                                             .map(OwnedRoomAliasId::to_string)
                                             .unwrap_or_default())
                                         }
-                                        td { (room.join_rule) }
+                                        td { (room.join_rule.as_str()) }
                                         td { (room.room_id) }
                                     }
                                 }
