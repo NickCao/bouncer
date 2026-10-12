@@ -10,8 +10,8 @@ use chrono::{Duration, Local};
 use chrono_humanize::{Accuracy, HumanTime, Tense};
 use clap::Parser;
 use oauth2::{
-    basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
-    ClientSecret, CsrfToken, RedirectUrl, TokenResponse, TokenUrl,
+    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl,
+    TokenResponse, TokenUrl,
 };
 use ruma::{
     api::client,
@@ -47,10 +47,11 @@ async fn callback(
         .remove(&query.state)
         .ok_or((StatusCode::BAD_REQUEST, "invalid csrf token".to_string()))?;
 
+    let http_client = reqwest::Client::new();
     let token = state
         .oauth2_client
         .exchange_code(AuthorizationCode::new(query.code))
-        .request_async(async_http_client)
+        .request_async(&http_client)
         .await
         .map_err(|err| {
             log::error!("failed to exchange for token: {}", err);
@@ -266,15 +267,15 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let oauth2_client = BasicClient::new(
-        ClientId::new(github_client_id),
-        Some(ClientSecret::new(github_client_secret)),
-        AuthUrl::new("https://github.com/login/oauth/authorize".to_string())?,
-        Some(TokenUrl::new(
+    let oauth2_client = BasicClient::new(ClientId::new(github_client_id))
+        .set_client_secret(ClientSecret::new(github_client_secret))
+        .set_auth_uri(AuthUrl::new(
+            "https://github.com/login/oauth/authorize".to_string(),
+        )?)
+        .set_token_uri(TokenUrl::new(
             "https://github.com/login/oauth/access_token".to_string(),
-        )?),
-    )
-    .set_redirect_uri(RedirectUrl::new(github_redirect_url)?);
+        )?)
+        .set_redirect_uri(RedirectUrl::new(github_redirect_url)?);
 
     let state = Arc::new(AppState {
         client,
