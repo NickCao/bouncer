@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use axum::extract::State;
+use lru::LruCache;
 use maud::{html, Markup, DOCTYPE};
 use oauth2::{basic::BasicClient, EndpointNotSet, EndpointSet};
 use ruma::{room::JoinRuleSummary, OwnedRoomAliasId, OwnedRoomId, OwnedUserId};
@@ -12,7 +13,7 @@ pub struct AppState {
     pub oauth2_client:
         BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>,
     pub rooms: HashMap<OwnedRoomId, RoomInfo>,
-    pub csrf: Mutex<HashMap<String, Invite>>,
+    pub csrf: Mutex<LruCache<String, Invite>>,
 }
 
 #[derive(serde::Serialize)]

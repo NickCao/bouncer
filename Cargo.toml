@@ -16,6 +16,7 @@ oauth2 = "5.0.0"
 chrono = "0.4.45"
 chrono-humanize = "0.2.3"
 maud = { version = "0.27.0", features = ["axum"] }
+lru = "0.18.5"
 
 [dependencies.ruma]
 version = "0.17.0"

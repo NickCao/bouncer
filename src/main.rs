@@ -9,6 +9,7 @@ use bouncer::{AppState, Invite, RoomInfo};
 use chrono::{Duration, Local};
 use chrono_humanize::{Accuracy, HumanTime, Tense};
 use clap::Parser;
+use lru::LruCache;
 use oauth2::{
     basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl,
     TokenResponse, TokenUrl,
@@ -23,7 +24,7 @@ use ruma::{
     room_version_rules::AuthorizationRules,
 };
 use ruma_client::Client;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
 use tokio::sync::Mutex;
 
 #[derive(Debug, serde::Deserialize)]
@@ -46,7 +47,7 @@ async fn callback(
         .csrf
         .lock()
         .await
-        .remove(&query.state)
+        .pop(&query.state)
         .ok_or((StatusCode::BAD_REQUEST, "invalid csrf token".to_string()))?;
 
     let http_client = reqwest::Client::new();
@@ -182,7 +183,7 @@ async fn invite(
         .csrf
         .lock()
         .await
-        .insert(csrf_token.secret().to_string(), invite);
+        .push(csrf_token.secret().to_string(), invite);
 
     Ok(Redirect::to(auth_url.as_str()))
 }
@@ -291,7 +292,7 @@ async fn main() -> anyhow::Result<()> {
         client,
         oauth2_client,
         rooms,
-        csrf: Mutex::new(HashMap::new()),
+        csrf: Mutex::new(LruCache::new(NonZeroUsize::new(128).unwrap())),
     });
 
     let app = Router::new()
