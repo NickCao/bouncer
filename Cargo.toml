@@ -18,11 +18,11 @@ chrono-humanize = "0.2.3"
 maud = { version = "0.27.0", features = ["axum"] }
 
 [dependencies.ruma]
-version = "0.12.6"
+version = "0.17.0"
 default-features = false
-features = ["api", "client", "client-api", "client-ext-client-api"]
+features = ["client-api-c"]
 
 [dependencies.ruma-client]
-version = "0.15.0"
+version = "0.20.0"
 default-features = false
-features = ["reqwest"]
+features = ["client-api", "reqwest"]

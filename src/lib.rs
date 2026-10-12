@@ -3,11 +3,12 @@ use std::{collections::HashMap, sync::Arc};
 use axum::extract::State;
 use maud::{html, Markup, DOCTYPE};
 use oauth2::{basic::BasicClient, EndpointNotSet, EndpointSet};
-use ruma::{room::JoinRuleSummary, Client, OwnedRoomAliasId, OwnedRoomId, OwnedUserId};
+use ruma::{room::JoinRuleSummary, OwnedRoomAliasId, OwnedRoomId, OwnedUserId};
+use ruma_client::Client;
 use tokio::sync::Mutex;
 
 pub struct AppState {
-    pub client: Client<ruma::client::http_client::Reqwest>,
+    pub client: Client<ruma_client::http_client::Reqwest>,
     pub oauth2_client:
         BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>,
     pub rooms: HashMap<OwnedRoomId, RoomInfo>,

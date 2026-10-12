@@ -14,13 +14,15 @@ use oauth2::{
     TokenResponse, TokenUrl,
 };
 use ruma::{
-    api::client,
+    api::client::{self, membership::invite_user::v3::InviteUserId},
     events::{
         room::power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
         StateEventType,
     },
-    Client,
+    profile::DisplayName,
+    room_version_rules::AuthorizationRules,
 };
+use ruma_client::Client;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -133,9 +135,9 @@ async fn callback(
         .client
         .send_request(client::membership::invite_user::v3::Request::new(
             invite.room_id.clone(),
-            client::membership::invite_user::v3::InvitationRecipient::UserId {
-                user_id: invite.user_id.clone(),
-            },
+            client::membership::invite_user::v3::InvitationRecipient::UserId(InviteUserId::new(
+                invite.user_id.clone(),
+            )),
         ))
         .await
         .map_err(|err| {
@@ -153,7 +155,11 @@ async fn callback(
 
     Ok(format!(
         "successfully invited user {} ({}) to room {}",
-        profile.displayname.unwrap_or_default(),
+        profile
+            .data
+            .get_static::<DisplayName>()
+            .unwrap_or_default()
+            .unwrap_or_default(),
         invite.user_id,
         invite.room_id,
     ))
@@ -216,7 +222,7 @@ async fn main() -> anyhow::Result<()> {
     let client = Client::builder()
         .homeserver_url(homeserver_url)
         .access_token(Some(access_token))
-        .build::<ruma::client::http_client::Reqwest>()
+        .build::<ruma_client::http_client::Reqwest>()
         .await
         .unwrap();
 
@@ -233,16 +239,20 @@ async fn main() -> anyhow::Result<()> {
 
     let mut rooms = HashMap::default();
     for room_id in joined_rooms {
-        let power_levels: RoomPowerLevels = client
-            .send_request(client::state::get_state_events_for_key::v3::Request::new(
-                room_id.clone(),
-                StateEventType::RoomPowerLevels,
-                "".to_string(),
-            ))
-            .await?
-            .content
-            .deserialize_as::<RoomPowerLevelsEventContent>()?
-            .into();
+        let power_levels = RoomPowerLevels::new(
+            client
+                .send_request(client::state::get_state_event_for_key::v3::Request::new(
+                    room_id.clone(),
+                    StateEventType::RoomPowerLevels,
+                    "".to_string(),
+                ))
+                .await?
+                .into_content()
+                .deserialize_as_unchecked::<RoomPowerLevelsEventContent>()?
+                .into(),
+            &AuthorizationRules::V1,
+            [],
+        );
         if !power_levels.user_can_invite(&user_id) {
             log::warn!(
                 "Do not have invite permission for room {}, ignoring",
